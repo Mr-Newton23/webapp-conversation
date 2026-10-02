@@ -1,0 +1,444 @@
+/*
+ * The assistant's mark, "living" variant: a stack of cut layers (base, lattice ring, knot, core medallion, bezel)
+ * that turn very slowly against each other while a soft light travels along the knot bands.
+ *
+ * Everything that moves is driven by these custom properties, which the four state classes override:
+ *   --jv-glow      0..1   how much light comes up through the gaps
+ *   --jv-breath    time   one breath of the blue core
+ *   --jv-flow      time   one circuit of the light along the knot bands
+ *   --jv-flow-dir         direction of that light (reverse = flowing inwards, used while listening)
+ *   --jv-gear             running | paused: extra, clearly visible counter-rotation of knot and lattice
+ *   --jv-dial             running | paused: the rosette in the medallion turning like a dial
+ * The extra rotations are paused rather than re-timed, so a state change never makes a layer jump.
+ */
+.orb {
+  position: relative;
+  flex-shrink: 0;
+  --jv-glow: 0.35;
+  --jv-breath: 7.5s;
+  --jv-flow: 12s;
+  --jv-flow-dir: normal;
+  --jv-gear: paused;
+  --jv-dial: paused;
+}
+
+/* idle: slow and quiet (the same values as the defaults above, spelled out so every state has its class) */
+.idle {
+  --jv-glow: 0.35;
+  --jv-breath: 7.5s;
+  --jv-flow: 12s;
+}
+
+/* listening: bright and attentive; the light runs back towards the hooks and the rosette turns like a dial */
+.listening {
+  --jv-glow: 1;
+  --jv-breath: 2.8s;
+  --jv-flow: 4.6s;
+  --jv-flow-dir: reverse;
+  --jv-dial: running;
+}
+
+/* thinking: steady and purposeful; knot and lattice visibly counter-rotate like a mechanism */
+.thinking {
+  --jv-glow: 0.7;
+  --jv-breath: 4.4s;
+  --jv-flow: 3s;
+  --jv-gear: running;
+  --jv-dial: running;
+}
+
+/* speaking: the liveliest; the core keeps an uneven voice rhythm and the light runs fastest */
+.speaking {
+  --jv-glow: 0.92;
+  --jv-breath: 1.7s;
+  --jv-flow: 2.1s;
+}
+
+/* still light behind the whole mark; it brightens with the state but never ripples outwards */
+.aura {
+  position: absolute;
+  inset: -16%;
+  border-radius: 50%;
+  background: radial-gradient(circle closest-side, rgba(63, 127, 191, 0.28) 0%, rgba(63, 127, 191, 0.24) 68%, rgba(43, 74, 140, 0.1) 86%, rgba(43, 74, 140, 0) 100%);
+  opacity: calc(0.3 + 0.7 * var(--jv-glow));
+  transition: opacity 0.8s ease;
+  pointer-events: none;
+}
+
+.mark {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* ---------- motion: every layer turns about the centre of the viewBox (0,0) ---------- */
+.turnCw,
+.turnCcw,
+.turnSlow,
+.gearCw,
+.gearCcw,
+.dial,
+.bloom,
+.core {
+  transform-origin: 0 0;
+}
+
+.turnCw {
+  animation: jvTurn 170s linear infinite;
+}
+
+.turnCcw {
+  animation: jvTurn 230s linear infinite reverse;
+}
+
+.turnSlow {
+  animation: jvTurn 300s linear infinite reverse;
+}
+
+.gearCw {
+  animation: jvTurn 28s linear infinite;
+  animation-play-state: var(--jv-gear);
+}
+
+.gearCcw {
+  animation: jvTurn 40s linear infinite reverse;
+  animation-play-state: var(--jv-gear);
+}
+
+.dial {
+  animation: jvTurn 20s linear infinite reverse;
+  animation-play-state: var(--jv-dial);
+}
+
+/* ---------- layer 0: base plate, blue well, rays ---------- */
+.wellGlow {
+  opacity: calc(0.12 + 0.88 * var(--jv-glow));
+  transition: opacity 0.8s ease;
+}
+
+.well {
+  animation: jvWell var(--jv-breath) ease-in-out infinite;
+}
+
+.rays {
+  fill: none;
+  stroke: #2E8FA3;
+  stroke-width: 0.6;
+  stroke-linecap: round;
+  opacity: calc(0.2 + 0.4 * var(--jv-glow));
+  transition: opacity 0.8s ease;
+}
+
+/* ---------- layer 1: lattice ring (lowest bronze, so the darkest) ---------- */
+/* the offset shadow every cut layer drops on the one below; no filters involved */
+.depth {
+  fill: none;
+  stroke: #02050D;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.6;
+}
+
+.latticeRing {
+  fill: none;
+  stroke: #6E4D27;
+  stroke-width: 0.9;
+}
+
+.latticeStud {
+  fill: #6E4D27;
+}
+
+.latticeDisc {
+  fill: #0A1224;
+  stroke: #9A6D38;
+  stroke-width: 1.5;
+}
+
+.latticeInner {
+  fill: none;
+  stroke: #6E4D27;
+  stroke-width: 0.7;
+}
+
+.latticeLines {
+  fill: none;
+  stroke: #9A6D38;
+  stroke-width: 0.9;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.latticeGem {
+  fill: #3F7FBF;
+  opacity: calc(0.3 + 0.7 * var(--jv-glow));
+  transition: opacity 0.8s ease;
+}
+
+/* ---------- layer 2: the knot ---------- */
+.casing {
+  fill: none;
+  stroke: #060B18;
+  stroke-width: 7.6;
+  stroke-linejoin: round;
+}
+
+.band {
+  fill: none;
+  stroke: #DDAA6A;
+  stroke-width: 5.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* the groove cut along each band: the blue layer shows through it */
+.channel {
+  fill: none;
+  stroke: #1E2C4D;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* the same groove lit from below: dark at rest, blue once the assistant is active */
+.channelLit {
+  fill: none;
+  stroke: #3F7FBF;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: calc(1.1 * var(--jv-glow) - 0.35);
+  transition: opacity 0.8s ease;
+}
+
+.glints {
+  opacity: calc(0.3 + 0.7 * var(--jv-glow));
+  transition: opacity 0.8s ease;
+}
+
+/* one short stretch of band; lit in turn, they read as a light travelling along the bronze */
+.glint {
+  fill: none;
+  stroke: #FFEBC8;
+  stroke-width: 5.2;
+  stroke-linecap: round;
+  opacity: 0;
+  animation: jvGlint var(--jv-flow) linear infinite;
+  animation-direction: var(--jv-flow-dir);
+}
+
+.eyeGlow {
+  opacity: calc(0.35 + 0.65 * var(--jv-glow));
+  transition: opacity 0.8s ease;
+}
+
+.eye {
+  animation: jvEye var(--jv-flow) ease-in-out infinite;
+  animation-direction: var(--jv-flow-dir);
+}
+
+.eyeFan {
+  fill: none;
+  stroke: #E9C48F;
+  stroke-width: 0.5;
+  stroke-linecap: round;
+  opacity: 0.8;
+}
+
+.eyeHub {
+  fill: none;
+  stroke: #9A6D38;
+  stroke-width: 0.8;
+}
+
+/* ---------- layer 3: core medallion ---------- */
+.medallionDisc {
+  fill: #0A1224;
+}
+
+.coreGlow {
+  opacity: calc(0.45 + 0.55 * var(--jv-glow));
+  transition: opacity 0.8s ease;
+}
+
+.core {
+  animation: jvBreathe var(--jv-breath) ease-in-out infinite;
+}
+
+.speaking .core {
+  animation-name: jvSpeak;
+}
+
+/* while speaking the light underneath follows the voice, and the lattice gems shimmer round the ring */
+.speaking .well {
+  animation-name: jvSpeakWell;
+}
+
+.speaking .latticeGem {
+  animation: jvGem calc(var(--jv-breath) * 2) ease-in-out infinite;
+}
+
+.bloom {
+  animation: jvBloom var(--jv-breath) ease-in-out infinite;
+}
+
+.petal {
+  fill: rgba(233, 196, 143, 0.14);
+  stroke: #E9C48F;
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+
+.petalMinor {
+  fill: none;
+  stroke: #9A6D38;
+  stroke-width: 0.7;
+  stroke-linejoin: round;
+}
+
+.medallionRing {
+  fill: none;
+  stroke: #E9C48F;
+  stroke-width: 2;
+}
+
+.medallionRingInner {
+  fill: none;
+  stroke: #9A6D38;
+  stroke-width: 0.7;
+}
+
+.boss {
+  fill: #FFEBC8;
+}
+
+/* ---------- layer 4: bezel ---------- */
+.bezelEdge {
+  fill: none;
+  stroke: #6E4D27;
+  stroke-width: 0.8;
+  stroke-linejoin: round;
+}
+
+.bezelRivets {
+  fill: none;
+  stroke: #6E4D27;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+}
+
+/* ---------- small sizes (avatar, header): a bold, simplified mark ---------- */
+.small .fine {
+  display: none;
+}
+
+.small .aura {
+  inset: -8%;
+}
+
+.small .band {
+  stroke-width: 12;
+}
+
+.small .medallionRing {
+  stroke-width: 7;
+}
+
+.small .wellGlow {
+  opacity: calc(0.5 + 0.5 * var(--jv-glow));
+}
+
+.small .coreGlow {
+  opacity: calc(0.65 + 0.35 * var(--jv-glow));
+}
+
+/* The avatar and header marks are mounted at different moments, so a knot that drifts all the time (and is left
+   wherever it stopped after thinking) ends up at a different angle in every reply. At these sizes the knot
+   stays upright; it only turns while that reply is being thought about, and comes back upright afterwards. */
+.small .turnCw,
+.small .gearCw {
+  animation: none;
+}
+
+.small.thinking .gearCw {
+  animation: jvTurn 28s linear infinite;
+}
+
+/* ---------- keyframes ---------- */
+@keyframes jvTurn {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes jvWell {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+@keyframes jvBreathe {
+  0%, 100% { opacity: 0.72; transform: scale(0.93); }
+  50% { opacity: 1; transform: scale(1.04); }
+}
+
+/* an uneven rhythm, like speech, kept inside the medallion: nothing travels outwards */
+@keyframes jvSpeak {
+  0%, 100% { opacity: 0.7; transform: scale(0.92); }
+  14% { opacity: 1; transform: scale(1.07); }
+  27% { opacity: 0.8; transform: scale(0.97); }
+  41% { opacity: 1; transform: scale(1.1); }
+  56% { opacity: 0.74; transform: scale(0.93); }
+  70% { opacity: 0.96; transform: scale(1.04); }
+  84% { opacity: 0.82; transform: scale(0.98); }
+}
+
+@keyframes jvSpeakWell {
+  0%, 100% { opacity: 0.55; }
+  14% { opacity: 1; }
+  27% { opacity: 0.7; }
+  41% { opacity: 1; }
+  56% { opacity: 0.58; }
+  70% { opacity: 0.95; }
+  84% { opacity: 0.72; }
+}
+
+@keyframes jvGem {
+  0%, 60%, 100% { opacity: 0.45; }
+  25% { opacity: 1; }
+}
+
+@keyframes jvBloom {
+  0%, 100% { transform: scale(0.985); }
+  50% { transform: scale(1.04); }
+}
+
+@keyframes jvGlint {
+  0%, 30%, 100% { opacity: 0; }
+  9% { opacity: 0.95; }
+}
+
+@keyframes jvEye {
+  0%, 46%, 100% { opacity: 0.4; }
+  12% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .turnCw,
+  .turnCcw,
+  .turnSlow,
+  .gearCw,
+  .gearCcw,
+  .dial,
+  .well,
+  .core,
+  .bloom,
+  .glint,
+  .eye,
+  .speaking .core,
+  .speaking .well,
+  .speaking .latticeGem,
+  .small.thinking .gearCw {
+    animation: none;
+  }
+}

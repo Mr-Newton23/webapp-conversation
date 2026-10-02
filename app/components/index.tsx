@@ -27,6 +27,25 @@ export interface IMainProps {
   params: any
 }
 
+// The model provider sometimes rejects a request because it is overloaded.
+// Those errors are usually brief, so the same question is sent again a couple of times.
+const MAX_SEND_RETRIES = 2
+const SEND_RETRY_DELAYS = [3000, 8000]
+
+// Match the provider's status text (e.g. "503 UNAVAILABLE"), not stray numbers in a stack trace.
+const isModelBusyError = (message: string) =>
+  /\b50[0234] [A-Z_]{4,}|UNAVAILABLE|DEADLINE_EXCEEDED/.test(message) || /overloaded|high demand/i.test(message)
+
+const isRateLimitError = (message: string) =>
+  /\b429 [A-Z_]{4,}|RESOURCE_EXHAUSTED/.test(message) || /quota|rate limit/i.test(message)
+
+// Error events can carry a whole stack trace. Keep the readable reason only.
+const summarizeError = (message: string) => {
+  const reasons = [...message.matchAll(/['"]message['"]:\s*['"]([^'"]{8,})['"]/g)]
+  const reason = reasons.length > 0 ? reasons[reasons.length - 1][1] : message
+  return reason.length > 240 ? `${reason.slice(0, 240)}…` : reason
+}
+
 const Main: FC<IMainProps> = () => {
   const { t } = useTranslation()
   const media = useBreakpoints()
@@ -42,6 +61,18 @@ const Main: FC<IMainProps> = () => {
   const [inited, setInited] = useState<boolean>(false)
   // in mobile, show sidebar by click button
   const [isShowSidebar, { setTrue: showSidebar, setFalse: hideSidebar }] = useBoolean(false)
+  // desktop: the conversation list is tucked away until asked for, and the choice is remembered
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true)
+  useEffect(() => {
+    try { setIsSidebarCollapsed(localStorage.getItem('assistant-sidebar-open') !== '1') }
+    catch { }
+  }, [])
+  const toggleSidebarCollapsed = () => {
+    const next = !isSidebarCollapsed
+    setIsSidebarCollapsed(next)
+    try { localStorage.setItem('assistant-sidebar-open', next ? '0' : '1') }
+    catch { }
+  }
   const [visionConfig, setVisionConfig] = useState<VisionSettings | undefined>({
     enabled: false,
     number_limits: 2,
@@ -51,7 +82,7 @@ const Main: FC<IMainProps> = () => {
   const [fileConfig, setFileConfig] = useState<FileUpload | undefined>()
 
   useEffect(() => {
-    if (APP_INFO?.title) { document.title = `${APP_INFO.title} - Powered by Dify` }
+    if (APP_INFO?.title) { document.title = APP_INFO.copyright ? `${APP_INFO.title} · ${APP_INFO.copyright}` : APP_INFO.title }
   }, [APP_INFO?.title])
 
   // onData change thought (the produce obj). https://github.com/immerjs/immer/issues/576
@@ -97,6 +128,13 @@ const Main: FC<IMainProps> = () => {
 
     return isChatStarted
   })()
+
+  // With no form to fill in there is nothing to ask before chatting, so open the chat straight away.
+  const hasNoIntakeForm = !!promptConfig && promptConfig.prompt_variables.length === 0
+  useEffect(() => {
+    if (inited && hasNoIntakeForm && isNewConversation && !isChatStarted) { handleStartChat({}) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inited, hasNoIntakeForm, isNewConversation, isChatStarted])
 
   const conversationName = currConversationInfo?.name || t('app.chat.newChatDefaultName') as string
   const conversationIntroduction = currConversationInfo?.introduction || ''
@@ -426,7 +464,7 @@ const Main: FC<IMainProps> = () => {
     let tempNewConversationId = ''
 
     setRespondingTrue()
-    sendChatMessage(data, {
+    const runAttempt = (attempt: number) => sendChatMessage(data, {
       getAbortController: (abortController) => {
         setAbortController(abortController)
       },
@@ -572,6 +610,60 @@ const Main: FC<IMainProps> = () => {
           draft.splice(draft.findIndex(item => item.id === placeholderAnswerId), 1)
         }))
       },
+      onStreamError(errorMessage: string, { conversationId: failedConversationId }: any) {
+        // has switched to other conversation
+        if (prevTempNewConversationId !== getCurrConversationId()) {
+          setIsRespondingConCurrCon(false)
+          setRespondingFalse()
+          return
+        }
+        const isBusy = isModelBusyError(errorMessage)
+        const willRetry = isBusy && attempt < MAX_SEND_RETRIES
+
+        // replace whatever the failed attempt showed with a status line.
+        // It takes the placeholder id, so the retry's first data removes it again.
+        const staleId = responseItem.id
+        responseItem.id = placeholderAnswerId
+        responseItem.agent_thoughts = []
+        responseItem.message_files = []
+        isAgentMode = false
+        hasSetResponseId = false
+        if (willRetry) {
+          responseItem.content = `The model is busy. Retrying (${attempt + 1} of ${MAX_SEND_RETRIES})…`
+        }
+        else if (isBusy) {
+          responseItem.content = `The model is busy right now and did not answer after ${MAX_SEND_RETRIES + 1} tries. Wait a minute, then send your message again.`
+        }
+        else if (isRateLimitError(errorMessage)) {
+          responseItem.content = 'The usage limit has been reached for the moment. Wait a minute, then send your message again.'
+        }
+        else {
+          responseItem.content = `Something went wrong and no answer came back.\n\nDetails: ${summarizeError(errorMessage)}`
+        }
+        setChatList(produce(
+          getChatList().filter(item => item.id !== staleId && item.id !== placeholderAnswerId),
+          (draft) => {
+            if (!draft.find(item => item.id === questionId)) { draft.push({ ...questionItem }) }
+
+            draft.push({ ...responseItem })
+          },
+        ))
+
+        if (!willRetry) {
+          setRespondingFalse()
+          return
+        }
+        // the failed attempt may already have created the conversation, so stay in it
+        if (failedConversationId) {
+          data.conversation_id = failedConversationId
+          tempNewConversationId = failedConversationId
+        }
+        setTimeout(() => {
+          // the status line stays on screen until the retry sends its first data
+          responseItem.content = ''
+          runAttempt(attempt + 1)
+        }, SEND_RETRY_DELAYS[attempt] ?? 8000)
+      },
       onWorkflowStarted: ({ workflow_run_id, task_id }) => {
         // taskIdRef.current = task_id
         responseItem.workflow_run_id = workflow_run_id
@@ -619,6 +711,7 @@ const Main: FC<IMainProps> = () => {
         }))
       },
     })
+    runAttempt(0)
   }
 
   const handleFeedback = async (messageId: string, feedback: Feedbacktype) => {
@@ -653,16 +746,18 @@ const Main: FC<IMainProps> = () => {
   if (!APP_ID || !APP_INFO || !promptConfig) { return <Loading type='app' /> }
 
   return (
-    <div className='bg-gray-100'>
+    <div className='bg-navy-950'>
       <Header
         title={APP_INFO.title}
         isMobile={isMobile}
         onShowSideBar={showSidebar}
+        isSidebarCollapsed={isSidebarCollapsed}
+        onToggleSidebar={toggleSidebarCollapsed}
         onCreateNewChat={() => handleConversationIdChange('-1')}
       />
-      <div className="flex rounded-t-2xl bg-white overflow-hidden">
+      <div className="flex bg-white overflow-hidden">
         {/* sidebar */}
-        {!isMobile && renderSidebar()}
+        {!isMobile && !isSidebarCollapsed && renderSidebar()}
         {isMobile && isShowSidebar && (
           <div className='fixed inset-0 z-50' style={{ backgroundColor: 'rgba(35, 56, 118, 0.2)' }} onClick={hideSidebar} >
             <div className='inline-block' onClick={e => e.stopPropagation()}>
@@ -672,7 +767,7 @@ const Main: FC<IMainProps> = () => {
         )}
         {/* main */}
         <div className='flex-grow flex flex-col h-[calc(100vh_-_3rem)] overflow-y-auto'>
-          <ConfigSence
+          {(hasSetInputs || !hasNoIntakeForm) && <ConfigSence
             conversationName={conversationName}
             hasSetInputs={hasSetInputs}
             isPublicVersion={isShowPrompt}
@@ -682,11 +777,11 @@ const Main: FC<IMainProps> = () => {
             canEditInputs={canEditInputs}
             savedInputs={currInputs as Record<string, any>}
             onInputsChange={setCurrInputs}
-          ></ConfigSence>
+          ></ConfigSence>}
 
           {
             hasSetInputs && (
-              <div className='relative grow pc:w-[794px] max-w-full mobile:w-full pb-[180px] mx-auto mb-3.5' ref={chatListDomRef}>
+              <div className='relative grow flex flex-col pc:w-[794px] max-w-full mobile:w-full mx-auto' ref={chatListDomRef}>
                 <Chat
                   chatList={chatList}
                   onSend={handleSend}

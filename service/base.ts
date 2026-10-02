@@ -109,6 +109,7 @@ export type IOnMessageReplace = (messageReplace: MessageReplace) => void
 export type IOnAnnotationReply = (messageReplace: AnnotationReply) => void
 export type IOnCompleted = (hasError?: boolean) => void
 export type IOnError = (msg: string, code?: string) => void
+export type IOnStreamError = (message: string, moreInfo: IOnDataMoreInfo) => void
 export type IOnWorkflowStarted = (workflowStarted: WorkflowStartedResponse) => void
 export type IOnWorkflowFinished = (workflowFinished: WorkflowFinishedResponse) => void
 export type IOnNodeStarted = (nodeStarted: NodeStartedResponse) => void
@@ -125,6 +126,7 @@ interface IOtherOptions {
   onMessageEnd?: IOnMessageEnd
   onMessageReplace?: IOnMessageReplace
   onError?: IOnError
+  onStreamError?: IOnStreamError // error event inside the stream (e.g. model overloaded)
   onCompleted?: IOnCompleted // for stream
   getAbortController?: (abortController: AbortController) => void
   onWorkflowStarted?: IOnWorkflowStarted
@@ -184,7 +186,7 @@ const handleStream = (
             }
             if (bufferObj.status === 400 || !bufferObj.event) {
               onData('', false, {
-                conversationId: undefined,
+                conversationId: bufferObj?.conversation_id,
                 messageId: '',
                 errorMessage: bufferObj?.message,
                 errorCode: bufferObj?.code,
@@ -368,6 +370,7 @@ export const ssePost = (
     onNodeStarted,
     onNodeFinished,
     onError,
+    onStreamError,
   }: IOtherOptions,
 ) => {
   const options = Object.assign({}, baseOptions, {
@@ -394,11 +397,17 @@ export const ssePost = (
       }
       return handleStream(res, (str: string, isFirstMessage: boolean, moreInfo: IOnDataMoreInfo) => {
         if (moreInfo.errorMessage) {
+          if (onStreamError) {
+            onStreamError(moreInfo.errorMessage, moreInfo)
+            return
+          }
           Toast.notify({ type: 'error', message: moreInfo.errorMessage })
           return
         }
         onData?.(str, isFirstMessage, moreInfo)
-      }, () => {
+      }, (hasError?: boolean) => {
+        // the caller that handles stream errors also finishes the request itself
+        if (hasError && onStreamError) { return }
         onCompleted?.()
       }, onThought, onMessageEnd, onMessageReplace, onFile, onWorkflowStarted, onWorkflowFinished, onNodeStarted, onNodeFinished)
     })

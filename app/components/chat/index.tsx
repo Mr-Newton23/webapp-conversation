@@ -1,17 +1,27 @@
 'use client'
 import type { FC } from 'react'
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import Textarea from 'rc-textarea'
-import s from './style.module.css'
 import Answer from './answer'
 import Question from './question'
 import type { FeedbackFunc } from './type'
 import type { ChatItem, VisionFile, VisionSettings } from '@/types/app'
 import { TransferMethod } from '@/types/app'
-import Tooltip from '@/app/components/base/tooltip'
+import {
+  ArrowUpIcon,
+  MicrophoneIcon,
+  PaperClipIcon,
+  SpeakerWaveIcon,
+  SpeakerXMarkIcon,
+  StopIcon,
+} from '@heroicons/react/24/outline'
 import Toast from '@/app/components/base/toast'
+import AssistantMark from '@/app/components/assistant-mark'
+import type { OrbState } from '@/app/components/assistant-mark'
+import useVoice from '@/hooks/use-voice'
+import { APP_INFO } from '@/config'
 import ChatImageUploader from '@/app/components/base/image-uploader/chat-image-uploader'
 import ImageList from '@/app/components/base/image-uploader/image-list'
 import { useImageFiles } from '@/app/components/base/image-uploader/hooks'
@@ -37,6 +47,22 @@ export interface IChatProps {
   controlClearQuery?: number
   visionConfig?: VisionSettings
   fileConfig?: FileUpload
+}
+
+// Shown under the orb on an empty conversation.
+const STARTER_PROMPTS = [
+  'What should I focus on this week?',
+  'Where does the company stand right now?',
+  'What is missing from my requirements?',
+]
+
+const SPEAK_REPLIES_KEY = 'assistant-speak-replies'
+
+// An agent answer keeps its text in the thoughts, a plain answer in content.
+const getAnswerText = (item?: ChatItem) => {
+  if (!item) { return '' }
+  const fromThoughts = (item.agent_thoughts || []).map(thought => thought.thought).filter(Boolean).join(' ')
+  return fromThoughts || item.content || ''
 }
 
 const Chat: FC<IChatProps> = ({
@@ -147,10 +173,90 @@ const Chat: FC<IChatProps> = ({
     handleSend()
   }
 
+  // ----- voice: speak a message in, and optionally have replies read out -----
+  const [speakReplies, setSpeakReplies] = useState(false)
+  // read the next reply aloud (set when a message is spoken, or when read-aloud is on)
+  const speakNextReply = useRef(false)
+  useEffect(() => {
+    try { setSpeakReplies(localStorage.getItem(SPEAK_REPLIES_KEY) === '1') }
+    catch { }
+  }, [])
+
+  const { canListen, canSpeak, isListening, isSpeaking, startListening, stopListening, speak, stopSpeaking } = useVoice({
+    onInterimTranscript: (text) => {
+      setQuery(text)
+      queryRef.current = text
+    },
+    onFinalTranscript: (text) => {
+      setQuery(text)
+      queryRef.current = text
+      speakNextReply.current = true
+      handleSend()
+    },
+    onError: logError,
+  })
+
+  const toggleSpeakReplies = () => {
+    const next = !speakReplies
+    setSpeakReplies(next)
+    if (!next) { stopSpeaking() }
+    try { localStorage.setItem(SPEAK_REPLIES_KEY, next ? '1' : '0') }
+    catch { }
+  }
+
+  const handleMicClick = () => {
+    if (isListening) {
+      stopListening()
+      return
+    }
+    startListening()
+  }
+
+  // when a reply finishes, read it out if asked to
+  const wasResponding = useRef(false)
+  useEffect(() => {
+    if (wasResponding.current && !isResponding) {
+      const shouldSpeak = speakNextReply.current || speakReplies
+      speakNextReply.current = false
+      const lastItem = chatList[chatList.length - 1]
+      if (shouldSpeak && lastItem?.isAnswer) { speak(getAnswerText(lastItem)) }
+    }
+    wasResponding.current = !!isResponding
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isResponding])
+
+  const [isAttachOpen, setIsAttachOpen] = useState(false)
+  const hasPendingText = query.trim().length > 0
+  const orbState: OrbState = isListening ? 'listening' : isResponding ? 'thinking' : isSpeaking ? 'speaking' : 'idle'
+  const isEmpty = chatList.length === 0
+
   return (
-    <div className={cn(!feedbackDisabled && 'px-3.5', 'h-full')}>
+    <div className={cn(!feedbackDisabled && 'px-3.5', 'grow flex flex-col')}>
+      {/* Empty conversation: the orb takes the middle of the screen */}
+      {isEmpty && (
+        <div className="flex flex-col items-center text-center pt-[9vh]">
+          <AssistantMark state={orbState} size={176} />
+          <div className="mt-6 text-2xl font-semibold tracking-wide text-gray-900">{APP_INFO.title}</div>
+          <div className="mt-1 text-sm text-gray-500">
+            {isListening ? 'Listening…' : 'Your advisor. Type or talk.'}
+          </div>
+          <div className="mt-8 flex flex-wrap justify-center gap-2 max-w-[560px]">
+            {STARTER_PROMPTS.map(prompt => (
+              <button
+                key={prompt}
+                type="button"
+                onClick={() => suggestionClick(prompt)}
+                className="px-3.5 py-2 rounded-full border border-gray-200 bg-gray-50 text-sm text-gray-700 hover:border-bronze-600 hover:text-bronze-300 transition-colors"
+              >
+                {prompt}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Chat List */}
-      <div className="h-full space-y-[30px]">
+      <div className="grow space-y-6 pb-6">
         {chatList.map((item) => {
           if (item.isAnswer) {
             const isLast = item.id === chatList[chatList.length - 1].id
@@ -160,6 +266,7 @@ const Chat: FC<IChatProps> = ({
               feedbackDisabled={feedbackDisabled}
               onFeedback={onFeedback}
               isResponding={isResponding && isLast}
+              isSpeaking={isSpeaking && isLast}
               suggestionClick={suggestionClick}
             />
           }
@@ -176,67 +283,104 @@ const Chat: FC<IChatProps> = ({
       </div>
       {
         !isHideSendInput && (
-          <div className='fixed z-10 bottom-0 left-1/2 transform -translate-x-1/2 pc:ml-[122px] tablet:ml-[96px] mobile:ml-0 pc:w-[794px] tablet:w-[794px] max-w-full mobile:w-full px-3.5'>
-            <div className='p-[5.5px] max-h-[150px] bg-white border-[1.5px] border-gray-200 rounded-xl overflow-y-auto'>
-              {
-                visionConfig?.enabled && (
-                  <>
-                    <div className='absolute bottom-2 left-2 flex items-center'>
-                      <ChatImageUploader
-                        settings={visionConfig}
-                        onUpload={onUpload}
-                        disabled={files.length >= visionConfig.number_limits}
-                      />
-                      <div className='mx-1 w-[1px] h-4 bg-black/5' />
-                    </div>
-                    <div className='pl-[52px]'>
-                      <ImageList
-                        list={files}
-                        onRemove={onRemove}
-                        onReUpload={onReUpload}
-                        onImageLinkLoadSuccess={onImageLinkLoadSuccess}
-                        onImageLinkLoadError={onImageLinkLoadError}
-                      />
-                    </div>
-                  </>
-                )
-              }
-              {
-                fileConfig?.enabled && (
-                  <div className={`${visionConfig?.enabled ? 'pl-[52px]' : ''} mb-1`}>
-                    <FileUploaderInAttachmentWrapper
-                      fileConfig={fileConfig}
-                      value={attachmentFiles}
-                      onChange={setAttachmentFiles}
-                    />
-                  </div>
-                )
-              }
-              <Textarea
-                className={`
-                  block w-full px-2 pr-[118px] py-[7px] leading-5 max-h-none text-base text-gray-700 outline-none appearance-none resize-none
-                  ${visionConfig?.enabled && 'pl-12'}
-                `}
-                value={query}
-                onChange={handleContentChange}
-                onKeyUp={handleKeyUp}
-                onKeyDown={handleKeyDown}
-                autoSize
-              />
-              <div className="absolute bottom-2 right-6 flex items-center h-8">
-                <div className={`${s.count} mr-3 h-5 leading-5 text-sm bg-gray-50 text-gray-500 px-2 rounded`}>{query.trim().length}</div>
-                <Tooltip
-                  selector='send-tip'
-                  htmlContent={
-                    <div>
-                      <div>{t('common.operation.send')} Enter</div>
-                      <div>{t('common.operation.lineBreak')} Shift Enter</div>
-                    </div>
-                  }
-                >
-                  <div className={`${s.sendBtn} w-8 h-8 cursor-pointer rounded-md`} onClick={handleSend}></div>
-                </Tooltip>
+          <div className='sticky z-10 bottom-0 -mx-3.5 px-3.5 pt-6 pb-3 bg-gradient-to-t from-white via-white to-transparent'>
+            {/* attachments open above the bar, so the typing area stays clear */}
+            {fileConfig?.enabled && (isAttachOpen || attachmentFiles.length > 0) && (
+              <div className="mb-2 p-2 rounded-xl border border-gray-200 bg-gray-50">
+                <FileUploaderInAttachmentWrapper
+                  fileConfig={fileConfig}
+                  value={attachmentFiles}
+                  onChange={setAttachmentFiles}
+                />
               </div>
+            )}
+            {visionConfig?.enabled && files.length > 0 && (
+              <div className="mb-2 p-2 rounded-xl border border-gray-200 bg-gray-50">
+                <ImageList
+                  list={files}
+                  onRemove={onRemove}
+                  onReUpload={onReUpload}
+                  onImageLinkLoadSuccess={onImageLinkLoadSuccess}
+                  onImageLinkLoadError={onImageLinkLoadError}
+                />
+              </div>
+            )}
+            <div className={cn(
+              'flex items-end gap-1 p-1.5 rounded-2xl border bg-navy-700 transition-colors',
+              isListening ? 'border-bronze-500 shadow-[0_0_0_3px_rgba(192,139,78,0.18)]' : 'border-gray-200 focus-within:border-bronze-600',
+            )}>
+              {fileConfig?.enabled && (
+                <button
+                  type="button"
+                  title="Attach a file"
+                  aria-label="Attach a file"
+                  onClick={() => setIsAttachOpen(!isAttachOpen)}
+                  className={cn('shrink-0 flex items-center justify-center w-9 h-9 rounded-xl hover:bg-gray-200 transition-colors', isAttachOpen ? 'text-bronze-400' : 'text-gray-500')}
+                >
+                  <PaperClipIcon className="w-5 h-5" />
+                </button>
+              )}
+              {visionConfig?.enabled && (
+                <div className="shrink-0 flex items-center justify-center w-9 h-9">
+                  <ChatImageUploader
+                    settings={visionConfig}
+                    onUpload={onUpload}
+                    disabled={files.length >= visionConfig.number_limits}
+                  />
+                </div>
+              )}
+              <div className="grow min-w-0 max-h-[150px] overflow-y-auto">
+                <Textarea
+                  className="block w-full px-2 py-2 leading-5 max-h-none text-base text-gray-900 placeholder-gray-400 bg-transparent outline-none appearance-none resize-none"
+                  placeholder={isListening ? 'Listening…' : `Message ${APP_INFO.title}`}
+                  value={query}
+                  onChange={handleContentChange}
+                  onKeyUp={handleKeyUp}
+                  onKeyDown={handleKeyDown}
+                  autoSize
+                />
+              </div>
+              {canSpeak && (
+                <button
+                  type="button"
+                  title={speakReplies ? 'Replies are read aloud. Click to turn off.' : 'Read replies aloud'}
+                  aria-label={speakReplies ? 'Turn off read aloud' : 'Read replies aloud'}
+                  aria-pressed={speakReplies}
+                  onClick={toggleSpeakReplies}
+                  className={cn('shrink-0 flex items-center justify-center w-9 h-9 rounded-xl hover:bg-gray-200 transition-colors', speakReplies ? 'text-bronze-400' : 'text-gray-500')}
+                >
+                  {speakReplies ? <SpeakerWaveIcon className="w-5 h-5" /> : <SpeakerXMarkIcon className="w-5 h-5" />}
+                </button>
+              )}
+              <button
+                type="button"
+                title={!canListen ? 'Voice input needs Chrome or Safari' : isListening ? 'Stop listening' : 'Speak your message'}
+                aria-label={isListening ? 'Stop listening' : 'Speak your message'}
+                onClick={handleMicClick}
+                className={cn(
+                  'shrink-0 flex items-center justify-center w-9 h-9 rounded-xl transition-colors',
+                  isListening ? 'bg-bronze-500 text-navy-950 animate-pulse' : 'hover:bg-gray-200',
+                  !isListening && (canListen ? 'text-gray-600' : 'text-gray-400 opacity-60'),
+                )}
+              >
+                {isListening ? <StopIcon className="w-5 h-5" /> : <MicrophoneIcon className="w-5 h-5" />}
+              </button>
+              <button
+                type="button"
+                title="Send (Enter). Shift + Enter for a new line."
+                aria-label="Send message"
+                onClick={handleSend}
+                disabled={!hasPendingText}
+                className={cn(
+                  'shrink-0 flex items-center justify-center w-9 h-9 rounded-xl transition-colors',
+                  hasPendingText ? 'bg-bronze-500 text-navy-950 hover:bg-bronze-400' : 'bg-gray-200 text-gray-400 cursor-default',
+                )}
+              >
+                <ArrowUpIcon className="w-5 h-5" strokeWidth={2.2} />
+              </button>
+            </div>
+            <div className="mt-1.5 text-center text-[11px] text-gray-400">
+              {APP_INFO.title} can be wrong. Check important facts in Fibery.
             </div>
           </div>
         )

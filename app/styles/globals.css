@@ -81,8 +81,13 @@ body {
   overflow-x: hidden;
 }
 
+html {
+  color-scheme: dark;
+}
+
 body {
-  color: rgb(var(--foreground-rgb));
+  color: #EEF1F7;
+  background: #060B18;
   /* background: linear-gradient(
       to bottom,
       transparent,
@@ -107,13 +112,13 @@ a {
   padding-bottom: 1.5rem;
   line-height: 1.5;
   font-size: 1.125rem;
-  color: #111928;
+  color: #EEF1F7;
 }
 
 .h2 {
   font-size: 14px;
   font-weight: 500;
-  color: #111928;
+  color: #EEF1F7;
   line-height: 1.5;
 }
 
@@ -127,4 +132,64 @@ a {
   -webkit-text-fill-color: transparent;
   background-clip: text;
   text-fill-color: transparent;
+}
+
+
+/* ---- dark navy and bronze theme ---- */
+::selection {
+  background: rgba(192, 139, 78, 0.35);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2A3A61 transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #2A3A61;
+  border-radius: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* answers and questions: readable text on the dark panels */
+.streamdown-markdown {
+  color: #E6EAF2;
+  line-height: 1.6;
+}
+
+.streamdown-markdown a {
+  color: #DDAA6A;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.streamdown-markdown strong {
+  color: #F6F7FA;
+}
+
+.streamdown-markdown code {
+  background: #121E3A;
+  border: 1px solid #1E2C4D;
+  border-radius: 6px;
+  padding: 0.1em 0.35em;
+  font-size: 0.92em;
+}
+
+.streamdown-markdown pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+.streamdown-markdown th,
+.streamdown-markdown td {
+  border-color: #1E2C4D;
 }

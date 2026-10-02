@@ -15,6 +15,7 @@ import ImageGallery from '../../base/image-gallery'
 import LoadingAnim from '../loading-anim'
 import s from '../style.module.css'
 import Thought from '../thought'
+import AssistantMark from '@/app/components/assistant-mark'
 
 function OperationBtn({ innerContent, onClick, className }: { innerContent: React.ReactNode, onClick?: () => void, className?: string }) {
   return (
@@ -68,6 +69,7 @@ interface IAnswerProps {
   feedbackDisabled: boolean
   onFeedback?: FeedbackFunc
   isResponding?: boolean
+  isSpeaking?: boolean
   allToolIcons?: Record<string, string | Emoji>
   suggestionClick?: (suggestion: string) => void
 }
@@ -78,6 +80,7 @@ const Answer: FC<IAnswerProps> = ({
   feedbackDisabled = false,
   onFeedback,
   isResponding,
+  isSpeaking,
   allToolIcons,
   suggestionClick = () => { },
 }) => {
@@ -179,17 +182,12 @@ const Answer: FC<IAnswerProps> = ({
   return (
     <div key={id}>
       <div className="flex items-start">
-        <div className={`${s.answerIcon} w-10 h-10 shrink-0`}>
-          {isResponding
-            && (
-              <div className={s.typeingIcon}>
-                <LoadingAnim type="avatar" />
-              </div>
-            )}
+        <div className="w-10 h-10 shrink-0 flex items-center justify-center">
+          <AssistantMark size={34} state={isResponding ? 'thinking' : isSpeaking ? 'speaking' : 'idle'} />
         </div>
         <div className={`${s.answerWrap} max-w-[calc(100%-3rem)]`}>
-          <div className={`${s.answer} relative text-sm text-gray-900`}>
-            <div className={`ml-2 py-3 px-4 bg-gray-100 rounded-tr-2xl rounded-b-2xl ${workflowProcess && 'min-w-[480px]'}`}>
+          <div className="relative text-sm text-gray-900">
+            <div className={`ml-2 py-3 px-4 bg-gray-50 border border-gray-200 rounded-2xl rounded-tl-md ${workflowProcess && 'min-w-[480px]'}`}>
               {workflowProcess && (
                 <WorkflowProcess data={workflowProcess} hideInfo />
               )}
