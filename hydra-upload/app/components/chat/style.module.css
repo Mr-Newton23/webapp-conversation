@@ -1,0 +1,7 @@
+.answerWrap .itemOperation {
+  display: none;
+}
+
+.answerWrap:hover .itemOperation {
+  display: flex;
+}
